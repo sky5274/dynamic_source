@@ -58,7 +58,6 @@ public class DynamicDataSourceAdapter  implements MethodBeforeAdvice{
 
 	@Override
 	public void before(Method method, Object[] args, Object target) throws Throwable {
-		System.err.println(method.getName());
 		if(dataSource !=null && !CollectionUtils.isEmpty(defaultSlaverMethodStart)) {
 			// 获取到当前执行的方法名  
 			String methodName = method.getName();  

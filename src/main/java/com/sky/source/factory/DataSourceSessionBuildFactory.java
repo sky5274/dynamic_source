@@ -123,6 +123,13 @@ public class DataSourceSessionBuildFactory {
 			}
 			session=build.build(session, lable, map, env);
 		}
+		if(beanName==null) {
+			beanName=lable;
+			if(session.getDataSourceDefiend()!=null) {
+				beanName+="_"+session.getDataSourceDefiend().getName();
+			}
+		}
+		session.setBeanName(beanName);
 		return session;
 	}
 	
@@ -167,6 +174,7 @@ public class DataSourceSessionBuildFactory {
 					break;
 				}
 			}
+			log.debug("data source config key map :"+keyScatterMap);
 		}
 	}
 	

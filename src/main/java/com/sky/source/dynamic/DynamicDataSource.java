@@ -13,6 +13,7 @@ import org.apache.commons.logging.LogFactory;
 import org.springframework.jdbc.datasource.lookup.AbstractRoutingDataSource;
 import org.springframework.util.CollectionUtils;
 import org.springframework.util.ReflectionUtils;
+import org.springframework.util.StringUtils;
 
 import com.sky.source.util.SpringRefrenceBeanUtil;  
 
@@ -30,6 +31,7 @@ public class DynamicDataSource extends AbstractRoutingDataSource {
 	
 	private volatile Integer slaverCount;  
 	private volatile Integer masterCount;  
+	private String label;
 
 	/** 轮询计数,初始为-1,AtomicInteger是线程安全的*/  
 	private AtomicInteger slavercounter = new AtomicInteger(-1);  
@@ -39,13 +41,15 @@ public class DynamicDataSource extends AbstractRoutingDataSource {
 	private List<Object> slaverDataSources = new ArrayList<Object>(0);
 	private List<Object> masterDataSources = new ArrayList<Object>(0);
 	
+	private String masterLable;
+	
 	private Map<String, String> dataSourceBeanMap=new HashMap<String, String>();
 
 	@Override  
 	protected synchronized Object determineCurrentLookupKey() {  
 		// 使用DynamicDataSourceHolder保证线程安全，使用当前线程的数据源判断  ，数据源类型
 		Object m = DynamicDataSourceHolder.isMaster(this)? getMasterKey() :getSlaveKey();
-		System.err.println("dynamic is get "+m);
+		log.debug("dynamic is get "+m);
 		return m;   
 	}  
 
@@ -84,7 +88,7 @@ public class DynamicDataSource extends AbstractRoutingDataSource {
 			}
 			this.slaverCount = slaverDataSources.size();  
 			this.masterCount = masterDataSources.size();  
-			log.debug("====> system has the database: "+sbuf.toString());
+			log.debug("====> system ["+label+"] has the database: "+sbuf.toString());
 			sbuf=null;
 		} catch (Exception e) {  
 			log.error("afterPropertiesSet error! ", e);  
@@ -205,6 +209,25 @@ public class DynamicDataSource extends AbstractRoutingDataSource {
 				throw new RuntimeException(String.format("DynamicDataSource bean for targetDataSources set error"),e);
 			}
 		}
+	}
+
+	public String getMasterLable() {
+		if(StringUtils.isEmpty(masterLable)) {
+			return masterKey;
+		}
+		return masterLable;
+	}
+
+	public void setMasterLable(String masterLable) {
+		this.masterLable = masterLable;
+	}
+
+	public String getLabel() {
+		return label;
+	}
+
+	public void setLabel(String label) {
+		this.label = label;
 	}
 }  
 
