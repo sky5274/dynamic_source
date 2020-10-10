@@ -4,7 +4,7 @@ dyniacData:
   session:
     mapper-localtion: com/example/demo/mapper/*.xml
     base-package: com.example.demo.dao1ss
-    name: sessin_${server.port}
+    name: sessin_$(server.port)
     namebean: $(test_s1)
     namebean2: '$(test_d2)'
     datasource: 
@@ -16,6 +16,7 @@ dyniacData:
     mysql:
       mapper-localtion: com/example/demo/mapper/*.xml
       base-package: com.example.*.dao
+      primary: master
       datasource: 
         master:
           name: test_d2

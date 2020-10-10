@@ -57,6 +57,7 @@ public class DataSourceSessionDynamicBuildHandleImpl extends AbstractDataSourceS
 				Map<String, Object> propertytmp=new HashMap<>();
 //				propertytmp.put("targetDataSources", dataRefMap);
 				property.put("dataSourceBeanMap", dataRefMap);
+				property.put("label", lable);   //动态数据源标签
 //				property.put("sourceMap", propertytmp);
 				
 				//数据源配置
@@ -68,6 +69,7 @@ public class DataSourceSessionDynamicBuildHandleImpl extends AbstractDataSourceS
 				DynamicDataSourceSessionDefined dySession=new DynamicDataSourceSessionDefined(session);
 				dySession.setSlaverMethod(slaverMethods==null?null:Arrays.asList(slaverMethods.split(",")));
 				dySession.setDataSourceDefiend(dsd);
+				dySession.setPrimary(getEnvironmentValue("primary",map,env));
 				dySession.setDataSourceList(datasources);
 				session=dySession;
 			}

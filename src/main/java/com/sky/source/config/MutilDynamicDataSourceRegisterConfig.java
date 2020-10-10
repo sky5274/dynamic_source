@@ -28,6 +28,7 @@ import org.springframework.context.ConfigurableApplicationContext;
 import org.springframework.context.EnvironmentAware;
 import org.springframework.context.annotation.ImportBeanDefinitionRegistrar;
 import org.springframework.core.annotation.AnnotationAttributes;
+import org.springframework.core.env.EnumerablePropertySource;
 import org.springframework.core.env.Environment;
 import org.springframework.core.env.PropertySource;
 import org.springframework.core.env.StandardEnvironment;
@@ -71,7 +72,8 @@ import com.sky.source.util.SpringRefrenceBeanUtil;
  *	    mysql——1:                                         ---
  * 	      mapper-localtion:com/mysql1/*.xml                 |
  * 	      base-package: com.mysql1.*                        |
- * 	      slaver-method:find*,select*,query*                 |
+ * 	      slaver-method: find*,select*,query*                 |
+ * 	      primary: master					                 |
  *	      master:                                           |
  *	        driverClassName:com.mysql.jdbc.Driver           |
  *	        url: jdbc:mysql://localhost:3306/test           |         第三种 数据源session配置：继承第二种配置的基础上，添加了主从数据库的配置模型
@@ -128,11 +130,9 @@ public class MutilDynamicDataSourceRegisterConfig implements ImportBeanDefinitio
 
 			//在spring context 环境属性配置中   获取 符合prefixkey 的键集合
 			Set<String> keys = getDataSourceDefinedKeys(prefixKey);
-
 			log.debug("dynamic data source build with spring evnironment");
 			//通过获取的满足的key集合， 进行构建形成多种数据源配置信息
 			Set<SessionDefined> sessionDefinedList = DataSourceSessionBuildFactory.prepare(prefixKey,keys).bulid(env);
-
 			//加载datasource-session 配置；注册相关bean并以及执行加载行为
 			loadSessionDefiend(registry,sessionDefinedList);
 		}
@@ -212,21 +212,33 @@ public class MutilDynamicDataSourceRegisterConfig implements ImportBeanDefinitio
 	protected void loadDynamicDataSourceAdapterDefiend(BeanDefinitionRegistry registry, String lable, DynamicDataSourceSessionDefined dyDatasourceDefiend) {
 		//定义aop 数据源适配器
 		GenericBeanDefinition dynamicDataSourceAdapterDefined = prepareBeanDefined(DynamicDataSourceAdapter.class);
+		dynamicDataSourceAdapterDefined.setAutowireMode(GenericBeanDefinition.AUTOWIRE_BY_NAME);
 		Set<String> methods=new LinkedHashSet<>(DEFAULT_DS_ADAPTER_METHOD);
-		methods.addAll(dyDatasourceDefiend.getSlaverMethod());
-		dynamicDataSourceAdapterDefined.getPropertyValues().add("dataSource", new RuntimeBeanReference(dyDatasourceDefiend.getBeanName()));
+		if(!CollectionUtils.isEmpty(dyDatasourceDefiend.getSlaverMethod())) {
+			methods.addAll(dyDatasourceDefiend.getSlaverMethod());
+		}
+		//注入主从动态数据源
+		dynamicDataSourceAdapterDefined.getPropertyValues().add("dataSource", new RuntimeBeanReference(dyDatasourceDefiend.getDataSourceDefiend().getName()));
 		dynamicDataSourceAdapterDefined.getPropertyValues().add("defaultSlaverMethodStart", methods);
+		dynamicDataSourceAdapterDefined.getPropertyValues().add("lable", lable);
 		BeanDefinitionHolder dynamicDataSourceAdapterDefinitionHolder = new BeanDefinitionHolder(dynamicDataSourceAdapterDefined,lable+"_"+DynamicDataSourceAdapter.class.getSimpleName()) ;
 		BeanDefinitionReaderUtils.registerBeanDefinition(dynamicDataSourceAdapterDefinitionHolder, registry);
 
 		//aop advisor defiend
 		GenericBeanDefinition pointcutAdvisorDefined = prepareBeanDefined(DefaultPointcutAdvisor.class);
+		pointcutAdvisorDefined.setAutowireMode(GenericBeanDefinition.AUTOWIRE_BY_NAME);
 		JdkRegexpMethodPointcut pointcut=new JdkRegexpMethodPointcut();
-		pointcut.setPattern(dyDatasourceDefiend.getBasePackage()+".*");
+		//主从数据库切换aop point
+		String aopPoint=dyDatasourceDefiend.getAopPoint();
+		if(StringUtils.isEmpty(aopPoint)) {
+			aopPoint=dyDatasourceDefiend.getBasePackage();
+		}
+		pointcut.setPattern(aopPoint+".*");
 		pointcutAdvisorDefined.getConstructorArgumentValues().addIndexedArgumentValue(0, pointcut);
-		pointcutAdvisorDefined.getConstructorArgumentValues().addIndexedArgumentValue(0, new RuntimeBeanReference(dynamicDataSourceAdapterDefinitionHolder.getBeanName()));
+		pointcutAdvisorDefined.getConstructorArgumentValues().addIndexedArgumentValue(1, new RuntimeBeanReference(dynamicDataSourceAdapterDefinitionHolder.getBeanName()));
 		BeanDefinitionHolder definitionHolder = new BeanDefinitionHolder(pointcutAdvisorDefined,lable+"_"+pointcutAdvisorDefined.getBeanClassName()) ;
 		BeanDefinitionReaderUtils.registerBeanDefinition(definitionHolder, registry);
+		log.debug(String.format("dynamic data source adapter for: {aop:%s, point:%s(%s), dataSource:%s}", definitionHolder.getBeanName(),dynamicDataSourceAdapterDefinitionHolder.getBeanName(),aopPoint,dyDatasourceDefiend.getDataSourceDefiend().getName()));
 	}
 	
 	/**
@@ -265,6 +277,7 @@ public class MutilDynamicDataSourceRegisterConfig implements ImportBeanDefinitio
 			ClassPathMapperScanner scanner = new ClassPathMapperScanner(registry);
 			scanner.setSqlSessionFactoryBeanName(session.getBeanName());
 			scanner.registerFilters();
+			log.debug("mybatis scann sqlsession: "+session.getBeanName()+" package: "+session.getBasePackage());
 			scanner.scan(StringUtils.tokenizeToStringArray(session.getBasePackage(), ConfigurableApplicationContext.CONFIG_LOCATION_DELIMITERS));
 		}
 	}
@@ -284,17 +297,45 @@ public class MutilDynamicDataSourceRegisterConfig implements ImportBeanDefinitio
 		while(its.hasNext()) {
 			PropertySource<?> s = its.next();
 			Object ss = s.getSource();
-			if(ss instanceof Map) {
-				@SuppressWarnings("unchecked")
-				Map<String, String> ms = (Map<String, String>)ss;
-				ms.keySet().stream().filter(it-> it.startsWith(prefixKey)).forEach(it-> keys.add(it));
-			}
-			if(ss instanceof Properties) {
-				Properties ps = (Properties)ss;
-				ps.keySet().stream().filter(it-> it.toString().startsWith(prefixKey)).forEach(it-> keys.add(it.toString()));
-			}
+			//分析 环境变量中的key，将满足条件的进行收集 
+			analysisEvnKey(ss,prefixKey,keys);
 		}
 		return keys;
+	}
+	
+	/**
+	 * 根据 前缀进行分析收集 环境变量中的key
+	 * @param ss
+	 * @param prefixKey
+	 * @param keys
+	 * @author wangfan
+	 * @date 2020年10月10日 下午3:28:50
+	 */
+	@SuppressWarnings("rawtypes")
+	private void analysisEvnKey(Object ss, String prefixKey, Set<String> keys) {
+		if(ss instanceof Map) {
+			@SuppressWarnings("unchecked")
+			Map<String, String> ms = (Map<String, String>)ss;
+			ms.keySet().stream().filter(it-> it.startsWith(prefixKey)).forEach(it-> keys.add(it));
+		}
+		if(ss instanceof Properties) {
+			Properties ps = (Properties)ss;
+			ps.keySet().stream().filter(it-> it.toString().startsWith(prefixKey)).forEach(it-> keys.add(it.toString()));
+		}
+		if(ss instanceof EnumerablePropertySource) {
+			EnumerablePropertySource ps = (EnumerablePropertySource)ss;
+			for(String k:ps.getPropertyNames()) {
+				if(k.startsWith(prefixKey)) {
+					keys.add(k);
+				}
+			}
+		}
+		if(ss instanceof Collection) {
+			Collection slist = (Collection)ss;
+			for(Object sl:slist) {
+				analysisEvnKey(sl, prefixKey, keys);
+			}
+		}
 	}
 
 	/**

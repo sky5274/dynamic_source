@@ -13,7 +13,9 @@ public class DynamicDataSourceSessionDefined extends SessionDefined{
 	private static final long serialVersionUID = 1192836010654746551L;
 	public static List<String> DEFAULT_SALVER_METHOD_Like=Arrays.asList("find*","select*","query*","get*");
 	
+	private String aopPoint;
 	private List<String> slaverMethod;
+	private String primary;
 	/**
 	 *	动态主从数据源，包含的数据标签数据
 	 */
@@ -78,6 +80,18 @@ public class DynamicDataSourceSessionDefined extends SessionDefined{
 			return false;
 		}
 		return true;
+	}
+	public String getPrimary() {
+		return primary;
+	}
+	public void setPrimary(String primary) {
+		this.primary = primary;
+	}
+	public String getAopPoint() {
+		return aopPoint;
+	}
+	public void setAopPoint(String aopPoint) {
+		this.aopPoint = aopPoint;
 	}
 	
 	
